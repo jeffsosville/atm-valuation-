@@ -6,8 +6,9 @@
 // SIMPLIFIED INPUTS (2026-05):
 // - "Total monthly surcharge income" (one $ field) replaces txns × surcharge
 // - "Total monthly interchange income" (one $ field) — new, on all route types
-// - Expense fields branch by route type as before
-// - Processing-only no longer has separate "monthly net" field — same revenue/expense pattern as others
+// - All field labels prefixed "Total monthly..."
+// - All fields have e.g. example placeholders
+// - Field alignment fixed (uniform label + hint heights)
 
 import Head from 'next/head';
 import { useState, useEffect, useMemo, useRef } from 'react';
@@ -37,25 +38,20 @@ const num = (s: string): number => {
 };
 
 export default function Calculator() {
-  // ── Step 1: route type ─────────────────────────────────
   const [routeType, setRouteType] = useState<RouteType | ''>('');
 
-  // ── Step 2: revenue (simplified — direct $ entry) ──────
   const [surchargeIncome,   setSurchargeIncome]   = useState('');
   const [interchangeIncome, setInterchangeIncome] = useState('');
 
-  // ── Step 3: expenses (vary by route type) ──────────────
   const [merchantPay, setMerchantPay] = useState('');
   const [wireless,    setWireless]    = useState('');
   const [loadingFees, setLoadingFees] = useState('');
   const [maintenance, setMaintenance] = useState('');
 
-  // ── Step 4: optional details ───────────────────────────
   const [numAtms,     setNumAtms]     = useState('');
   const [contractPct, setContractPct] = useState('');
   const [equipAge,    setEquipAge]    = useState('');
 
-  // ── Lead capture ───────────────────────────────────────
   const [showLeadForm, setShowLeadForm] = useState(false);
   const [name,  setName]  = useState('');
   const [email, setEmail] = useState('');
@@ -63,7 +59,6 @@ export default function Calculator() {
   const [submitStatus, setSubmitStatus] = useState<'idle'|'loading'|'success'|'error'>('idle');
   const [submitError, setSubmitError] = useState('');
 
-  // ── Compute valuation in real time ─────────────────────
   const computed = useMemo(() => {
     if (!routeType) return null;
 
@@ -75,7 +70,6 @@ export default function Calculator() {
     } else if (routeType === 'third_party_load') {
       monthlyNet = grossRevenue - num(merchantPay) - num(wireless) - num(loadingFees) - num(maintenance);
     }
-    // processing_only: net = gross (no expense subtraction in calculator)
 
     const multiple = MULTIPLES[routeType];
     const value = monthlyNet * multiple;
@@ -93,7 +87,6 @@ export default function Calculator() {
 
   const showResult = !!computed && minInputsFilled;
 
-  // ── iframe auto-resize ─────────────────────────────────
   const containerRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const sendHeight = () => {
@@ -108,7 +101,6 @@ export default function Calculator() {
     return () => obs.disconnect();
   }, [routeType, showResult, showLeadForm, submitStatus]);
 
-  // ── Submit lead capture ────────────────────────────────
   const handleLeadSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!computed || !name || !email) return;
@@ -181,7 +173,6 @@ export default function Calculator() {
 
       <div ref={containerRef} className="wrap">
 
-        {/* ── HEADER ─────────────────────────────────────── */}
         <div className="head">
           <div className="kicker">ATM ROUTE VALUATION</div>
           <h1>What's your ATM route worth?</h1>
@@ -191,7 +182,6 @@ export default function Calculator() {
           </p>
         </div>
 
-        {/* ── STEP 1: ROUTE TYPE ─────────────────────────── */}
         <Section step="1" title="Route type">
           <div className="route-grid">
             {(['self_load','third_party_load','processing_only'] as RouteType[]).map(t => (
@@ -213,7 +203,6 @@ export default function Calculator() {
           </div>
         </Section>
 
-        {/* ── STEP 2: REVENUE (simplified, all route types) ─ */}
         {routeType && (
           <Section step="2" title="Monthly revenue">
             <div className="row two">
@@ -240,21 +229,20 @@ export default function Calculator() {
           </Section>
         )}
 
-        {/* ── STEP 3: EXPENSES (vary by route type) ─────────── */}
         {routeType && routeType !== 'processing_only' && (
           <Section step="3" title="Monthly expenses">
             <div className="row two">
-              <Field label="Total merchant payments" hint="What you pay locations">
+              <Field label="Total monthly merchant payments" hint="What you pay locations">
                 <div className="dollar-input">
                   <span>$</span>
-                  <input type="text" inputMode="numeric" placeholder="0"
+                  <input type="text" inputMode="numeric" placeholder="e.g. 1,500"
                     value={merchantPay} onChange={e => setMerchantPay(e.target.value)} />
                 </div>
               </Field>
-              <Field label="Total wireless fees">
+              <Field label="Total monthly wireless fees" hint="Cellular data for ATMs">
                 <div className="dollar-input">
                   <span>$</span>
-                  <input type="text" inputMode="numeric" placeholder="0"
+                  <input type="text" inputMode="numeric" placeholder="e.g. 240"
                     value={wireless} onChange={e => setWireless(e.target.value)} />
                 </div>
               </Field>
@@ -262,17 +250,17 @@ export default function Calculator() {
 
             {routeType === 'third_party_load' && (
               <div className="row two">
-                <Field label="Total loading fees" hint="Cash provider fees">
+                <Field label="Total monthly loading fees" hint="Cash provider fees">
                   <div className="dollar-input">
                     <span>$</span>
-                    <input type="text" inputMode="numeric" placeholder="0"
+                    <input type="text" inputMode="numeric" placeholder="e.g. 4,200"
                       value={loadingFees} onChange={e => setLoadingFees(e.target.value)} />
                   </div>
                 </Field>
-                <Field label="Total maintenance costs">
+                <Field label="Total monthly maintenance costs" hint="Service & repairs">
                   <div className="dollar-input">
                     <span>$</span>
-                    <input type="text" inputMode="numeric" placeholder="0"
+                    <input type="text" inputMode="numeric" placeholder="e.g. 1,725"
                       value={maintenance} onChange={e => setMaintenance(e.target.value)} />
                   </div>
                 </Field>
@@ -281,12 +269,11 @@ export default function Calculator() {
           </Section>
         )}
 
-        {/* ── STEP 4: OPTIONAL DETAILS ──────────────────────── */}
         {routeType && (
           <Section step={routeType === 'processing_only' ? '3' : '4'}
                    title="Route details" subtitle="Optional — these affect final valuation">
             <div className="row three">
-              <Field label="# of ATMs">
+              <Field label="# of ATMs" hint="In the route">
                 <input type="text" inputMode="numeric" placeholder="e.g. 12"
                   value={numAtms} onChange={e => setNumAtms(e.target.value)} />
               </Field>
@@ -305,7 +292,6 @@ export default function Calculator() {
           </Section>
         )}
 
-        {/* ── RESULT ─────────────────────────────────────── */}
         {showResult && computed && (
           <div className="result">
             <div className="result-kicker">ESTIMATED ROUTE VALUE</div>
@@ -368,15 +354,18 @@ export default function Calculator() {
                   No cost. Response within one business day.
                 </p>
                 <div className="row two">
-                  <Field label="Name *">
-                    <input type="text" required value={name} onChange={e => setName(e.target.value)} />
+                  <Field label="Name *" hint="Your full name">
+                    <input type="text" required placeholder="e.g. Jeff Sosville"
+                      value={name} onChange={e => setName(e.target.value)} />
                   </Field>
-                  <Field label="Email *">
-                    <input type="email" required value={email} onChange={e => setEmail(e.target.value)} />
+                  <Field label="Email *" hint="Where we'll send the report">
+                    <input type="email" required placeholder="e.g. you@example.com"
+                      value={email} onChange={e => setEmail(e.target.value)} />
                   </Field>
                 </div>
-                <Field label="Phone (optional)">
-                  <input type="tel" value={phone} onChange={e => setPhone(e.target.value)} />
+                <Field label="Phone" hint="Optional">
+                  <input type="tel" placeholder="e.g. 315-430-8845"
+                    value={phone} onChange={e => setPhone(e.target.value)} />
                 </Field>
                 <button type="submit" disabled={submitStatus === 'loading'} className="cta">
                   {submitStatus === 'loading' ? 'Sending…' : 'Request analysis →'}
@@ -481,6 +470,7 @@ export default function Calculator() {
           display: grid;
           gap: 14px;
           margin-bottom: 14px;
+          align-items: start;
         }
         .row.two   { grid-template-columns: 1fr; }
         .row.three { grid-template-columns: 1fr; }
@@ -716,22 +706,29 @@ function Field({
   return (
     <label className="field">
       <span className="lbl">{label}</span>
-      {hint && <span className="hint">{hint}</span>}
+      <span className="hint">{hint || '\u00A0'}</span>
       {children}
       <style jsx>{`
-        .field { display: block; }
+        .field {
+          display: flex;
+          flex-direction: column;
+        }
         .lbl {
           display: block;
           font-size: 13px;
           font-weight: 500;
           color: #0f172a;
-          margin-bottom: 4px;
+          margin-bottom: 2px;
+          line-height: 1.3;
+          min-height: 17px;
         }
         .hint {
           display: block;
           font-size: 12px;
           color: #64748b;
-          margin-bottom: 6px;
+          margin-bottom: 8px;
+          line-height: 1.3;
+          min-height: 16px;
         }
         .field :global(input) {
           width: 100%;
