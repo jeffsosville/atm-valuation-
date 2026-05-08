@@ -1,10 +1,13 @@
 // pages/api/atm-valuation.ts
 //
 // Captures every ATM route valuation request:
-//   - Anonymous calculations are logged for analytics (lead = null)
+//   - Anonymous calculations are logged for analytics
 //   - When user requests full report, name/email/phone are added
 //   - Emails john@atmbrokerage.com on every full-report request
 //   - Sends confirmation to the seller
+//
+// Inputs simplified (2026-05): single surcharge_income + interchange_income
+// fields replace transactions × surcharge math.
 
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { createClient } from '@supabase/supabase-js';
@@ -17,19 +20,19 @@ const supabase = createClient(
 const RESEND_API_KEY = process.env.RESEND_API_KEY!;
 const FROM_EMAIL     = 'ATM Brokerage <noreply@atmbrokerage.com>';
 const TO_EMAIL       = 'john@atmbrokerage.com';
-const CC_EMAIL       = process.env.VALUATION_CC_EMAIL || ''; // optional fallback
+const CC_EMAIL       = process.env.VALUATION_CC_EMAIL || '';
 
 type Body = {
   // Inputs
   route_type: 'self_load' | 'third_party_load' | 'processing_only';
-  monthly_transactions?: number | null;
-  avg_surcharge?: number | null;
+
+  monthly_surcharge_income?: number | null;
+  monthly_interchange_income?: number | null;
 
   monthly_merchant_payments?: number | null;
   monthly_wireless_fees?: number | null;
   monthly_loading_fees?: number | null;
   monthly_maintenance?: number | null;
-  monthly_net_processing?: number | null;
 
   num_atms?: number | null;
   contract_coverage_pct?: number | null;
@@ -76,7 +79,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  // CORS — allow embed from atmbrokerage.com and atmexits.com
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -88,7 +90,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(400).json({ error: 'route_type required' });
     }
 
-    // Validate email if requesting full report
     if (body.wants_full_report) {
       if (!body.name || !body.email) {
         return res.status(400).json({ error: 'Name and email required for full report' });
@@ -106,28 +107,27 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const { data: row, error: dbError } = await supabase
       .from('atm_valuations')
       .insert({
-        route_type:                body.route_type,
-        monthly_transactions:      body.monthly_transactions ?? null,
-        avg_surcharge:             body.avg_surcharge ?? null,
-        monthly_merchant_payments: body.monthly_merchant_payments ?? null,
-        monthly_wireless_fees:     body.monthly_wireless_fees ?? null,
-        monthly_loading_fees:      body.monthly_loading_fees ?? null,
-        monthly_maintenance:       body.monthly_maintenance ?? null,
-        monthly_net_processing:    body.monthly_net_processing ?? null,
-        num_atms:                  body.num_atms ?? null,
-        contract_coverage_pct:     body.contract_coverage_pct ?? null,
-        avg_equipment_age_years:   body.avg_equipment_age_years ?? null,
-        computed_gross_revenue:    body.computed_gross_revenue,
-        computed_monthly_net:      body.computed_monthly_net,
-        computed_multiple:         body.computed_multiple,
-        computed_value:            body.computed_value,
-        name:                      body.name || null,
-        email:                     body.email || null,
-        phone:                     body.phone || null,
-        wants_full_report:         body.wants_full_report || false,
-        user_agent:                userAgent,
-        ip_address:                ip,
-        referrer:                  body.referrer || null,
+        route_type:                 body.route_type,
+        monthly_surcharge_income:   body.monthly_surcharge_income ?? null,
+        monthly_interchange_income: body.monthly_interchange_income ?? null,
+        monthly_merchant_payments:  body.monthly_merchant_payments ?? null,
+        monthly_wireless_fees:      body.monthly_wireless_fees ?? null,
+        monthly_loading_fees:       body.monthly_loading_fees ?? null,
+        monthly_maintenance:        body.monthly_maintenance ?? null,
+        num_atms:                   body.num_atms ?? null,
+        contract_coverage_pct:      body.contract_coverage_pct ?? null,
+        avg_equipment_age_years:    body.avg_equipment_age_years ?? null,
+        computed_gross_revenue:     body.computed_gross_revenue,
+        computed_monthly_net:       body.computed_monthly_net,
+        computed_multiple:          body.computed_multiple,
+        computed_value:             body.computed_value,
+        name:                       body.name || null,
+        email:                      body.email || null,
+        phone:                      body.phone || null,
+        wants_full_report:          body.wants_full_report || false,
+        user_agent:                 userAgent,
+        ip_address:                 ip,
+        referrer:                   body.referrer || null,
       })
       .select()
       .single();
@@ -137,10 +137,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(500).json({ error: 'Failed to save' });
     }
 
-    // 2. Only fire emails when user requested full report (has lead info)
+    // 2. Only fire emails when full report requested
     if (body.wants_full_report && body.email) {
 
-      // Internal alert to John
       const subject = `ATM Valuation — ${body.name} · ${money(body.computed_value)} (${routeTypeLabel(body.route_type)})`;
 
       const internalHtml = `
@@ -176,13 +175,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     <div style="font-family:Menlo,monospace;font-size:10px;letter-spacing:0.14em;color:#b7361a;margin-bottom:8px;">— ROUTE INPUTS</div>
     <table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:24px;">
+      <tr><td style="padding:8px 0;border-top:1px solid #d8d0c0;color:#8a7e6e;width:200px;">Monthly surcharge income</td>
+          <td style="padding:8px 0;border-top:1px solid #d8d0c0;font-family:Menlo,monospace;">${money(body.monthly_surcharge_income)}</td></tr>
+      <tr><td style="padding:8px 0;border-top:1px solid #d8d0c0;color:#8a7e6e;">Monthly interchange income</td>
+          <td style="padding:8px 0;border-top:1px solid #d8d0c0;font-family:Menlo,monospace;">${money(body.monthly_interchange_income)}</td></tr>
+      <tr><td style="padding:8px 0;border-top:1px solid #d8d0c0;color:#8a7e6e;"><strong>Gross monthly revenue</strong></td>
+          <td style="padding:8px 0;border-top:1px solid #d8d0c0;font-family:Menlo,monospace;"><strong>${money(body.computed_gross_revenue)}</strong></td></tr>
       ${body.route_type !== 'processing_only' ? `
-      <tr><td style="padding:8px 0;border-top:1px solid #d8d0c0;color:#8a7e6e;width:200px;">Monthly transactions</td>
-          <td style="padding:8px 0;border-top:1px solid #d8d0c0;font-family:Menlo,monospace;">${body.monthly_transactions?.toLocaleString() || '—'}</td></tr>
-      <tr><td style="padding:8px 0;border-top:1px solid #d8d0c0;color:#8a7e6e;">Avg surcharge / txn</td>
-          <td style="padding:8px 0;border-top:1px solid #d8d0c0;font-family:Menlo,monospace;">${money(body.avg_surcharge)}</td></tr>
-      <tr><td style="padding:8px 0;border-top:1px solid #d8d0c0;color:#8a7e6e;">Gross monthly revenue</td>
-          <td style="padding:8px 0;border-top:1px solid #d8d0c0;font-family:Menlo,monospace;">${money(body.computed_gross_revenue)}</td></tr>
       <tr><td style="padding:8px 0;border-top:1px solid #d8d0c0;color:#8a7e6e;">Merchant payments</td>
           <td style="padding:8px 0;border-top:1px solid #d8d0c0;font-family:Menlo,monospace;">${money(body.monthly_merchant_payments)}</td></tr>
       <tr><td style="padding:8px 0;border-top:1px solid #d8d0c0;color:#8a7e6e;">Wireless fees</td>
@@ -192,9 +191,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           <td style="padding:8px 0;border-top:1px solid #d8d0c0;font-family:Menlo,monospace;">${money(body.monthly_loading_fees)}</td></tr>
       <tr><td style="padding:8px 0;border-top:1px solid #d8d0c0;color:#8a7e6e;">Maintenance</td>
           <td style="padding:8px 0;border-top:1px solid #d8d0c0;font-family:Menlo,monospace;">${money(body.monthly_maintenance)}</td></tr>` : ''}
-      ${body.route_type === 'processing_only' ? `
-      <tr><td style="padding:8px 0;border-top:1px solid #d8d0c0;color:#8a7e6e;">Monthly net (direct entry)</td>
-          <td style="padding:8px 0;border-top:1px solid #d8d0c0;font-family:Menlo,monospace;">${money(body.monthly_net_processing)}</td></tr>` : ''}
       <tr><td style="padding:8px 0;border-top:1px solid #d8d0c0;color:#8a7e6e;"># of ATMs</td>
           <td style="padding:8px 0;border-top:1px solid #d8d0c0;font-family:Menlo,monospace;">${body.num_atms ?? '—'}</td></tr>
       <tr><td style="padding:8px 0;border-top:1px solid #d8d0c0;color:#8a7e6e;">Contract coverage</td>
@@ -231,7 +227,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         console.error('Resend internal email failed:', e);
       }
 
-      // Buyer/seller confirmation
       const sellerHtml = `
 <!DOCTYPE html>
 <html><head><meta charset="UTF-8"></head>
