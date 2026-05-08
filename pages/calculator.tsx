@@ -1,8 +1,13 @@
 // pages/calculator.tsx
 //
 // ATM Route Valuation Calculator
-// Designed to be embedded as iframe on atmbrokerage.com (WordPress)
-// and atmexits.com — neutral styling, transparent background, auto-resize.
+// Embedded as iframe on atmbrokerage.com (WordPress) and atmexits.com.
+//
+// SIMPLIFIED INPUTS (2026-05):
+// - "Total monthly surcharge income" (one $ field) replaces txns × surcharge
+// - "Total monthly interchange income" (one $ field) — new, on all route types
+// - Expense fields branch by route type as before
+// - Processing-only no longer has separate "monthly net" field — same revenue/expense pattern as others
 
 import Head from 'next/head';
 import { useState, useEffect, useMemo, useRef } from 'react';
@@ -35,21 +40,20 @@ export default function Calculator() {
   // ── Step 1: route type ─────────────────────────────────
   const [routeType, setRouteType] = useState<RouteType | ''>('');
 
-  // ── Step 2: revenue ────────────────────────────────────
-  const [transactions, setTransactions] = useState('');
-  const [surcharge, setSurcharge]       = useState('');
+  // ── Step 2: revenue (simplified — direct $ entry) ──────
+  const [surchargeIncome,   setSurchargeIncome]   = useState('');
+  const [interchangeIncome, setInterchangeIncome] = useState('');
 
-  // ── Step 3: expenses (varies) ──────────────────────────
-  const [merchantPay,  setMerchantPay]  = useState('');
-  const [wireless,     setWireless]     = useState('');
-  const [loadingFees,  setLoadingFees]  = useState('');
-  const [maintenance,  setMaintenance]  = useState('');
-  const [netProcessing, setNetProcessing] = useState('');  // processing_only
+  // ── Step 3: expenses (vary by route type) ──────────────
+  const [merchantPay, setMerchantPay] = useState('');
+  const [wireless,    setWireless]    = useState('');
+  const [loadingFees, setLoadingFees] = useState('');
+  const [maintenance, setMaintenance] = useState('');
 
-  // ── Step 4: details ────────────────────────────────────
-  const [numAtms,  setNumAtms]  = useState('');
+  // ── Step 4: optional details ───────────────────────────
+  const [numAtms,     setNumAtms]     = useState('');
   const [contractPct, setContractPct] = useState('');
-  const [equipAge, setEquipAge] = useState('');
+  const [equipAge,    setEquipAge]    = useState('');
 
   // ── Lead capture ───────────────────────────────────────
   const [showLeadForm, setShowLeadForm] = useState(false);
@@ -63,42 +67,33 @@ export default function Calculator() {
   const computed = useMemo(() => {
     if (!routeType) return null;
 
-    let grossRevenue = 0;
-    let monthlyNet  = 0;
+    const grossRevenue = num(surchargeIncome) + num(interchangeIncome);
+    let monthlyNet = grossRevenue;
 
-    if (routeType === 'processing_only') {
-      monthlyNet = num(netProcessing);
-      grossRevenue = monthlyNet;  // for processing-only, net IS the entered figure
-    } else {
-      grossRevenue = num(transactions) * num(surcharge);
-      monthlyNet = grossRevenue
-                 - num(merchantPay)
-                 - num(wireless);
-      if (routeType === 'third_party_load') {
-        monthlyNet = monthlyNet - num(loadingFees) - num(maintenance);
-      }
+    if (routeType === 'self_load') {
+      monthlyNet = grossRevenue - num(merchantPay) - num(wireless);
+    } else if (routeType === 'third_party_load') {
+      monthlyNet = grossRevenue - num(merchantPay) - num(wireless) - num(loadingFees) - num(maintenance);
     }
+    // processing_only: net = gross (no expense subtraction in calculator)
 
     const multiple = MULTIPLES[routeType];
     const value = monthlyNet * multiple;
 
     return { grossRevenue, monthlyNet, multiple, value };
   }, [
-    routeType, transactions, surcharge,
+    routeType, surchargeIncome, interchangeIncome,
     merchantPay, wireless, loadingFees, maintenance,
-    netProcessing,
   ]);
 
-  // ── Form-readiness checks ──────────────────────────────
   const minInputsFilled = useMemo(() => {
     if (!routeType) return false;
-    if (routeType === 'processing_only') return num(netProcessing) > 0;
-    return num(transactions) > 0 && num(surcharge) > 0;
-  }, [routeType, transactions, surcharge, netProcessing]);
+    return num(surchargeIncome) > 0 || num(interchangeIncome) > 0;
+  }, [routeType, surchargeIncome, interchangeIncome]);
 
   const showResult = !!computed && minInputsFilled;
 
-  // ── iframe auto-resize: tell parent the height ─────────
+  // ── iframe auto-resize ─────────────────────────────────
   const containerRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const sendHeight = () => {
@@ -127,20 +122,19 @@ export default function Calculator() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           route_type: routeType,
-          monthly_transactions: routeType !== 'processing_only' ? num(transactions) : null,
-          avg_surcharge:        routeType !== 'processing_only' ? num(surcharge) : null,
-          monthly_merchant_payments: routeType !== 'processing_only' ? num(merchantPay) : null,
-          monthly_wireless_fees:     routeType !== 'processing_only' ? num(wireless) : null,
-          monthly_loading_fees:      routeType === 'third_party_load' ? num(loadingFees) : null,
-          monthly_maintenance:       routeType === 'third_party_load' ? num(maintenance) : null,
-          monthly_net_processing:    routeType === 'processing_only' ? num(netProcessing) : null,
-          num_atms:                  numAtms      ? num(numAtms)      : null,
-          contract_coverage_pct:     contractPct  ? num(contractPct)  : null,
-          avg_equipment_age_years:   equipAge     ? num(equipAge)     : null,
-          computed_gross_revenue:    computed.grossRevenue,
-          computed_monthly_net:      computed.monthlyNet,
-          computed_multiple:         computed.multiple,
-          computed_value:            computed.value,
+          monthly_surcharge_income:   num(surchargeIncome),
+          monthly_interchange_income: num(interchangeIncome),
+          monthly_merchant_payments:  routeType !== 'processing_only' ? num(merchantPay) : null,
+          monthly_wireless_fees:      routeType !== 'processing_only' ? num(wireless)    : null,
+          monthly_loading_fees:       routeType === 'third_party_load' ? num(loadingFees) : null,
+          monthly_maintenance:        routeType === 'third_party_load' ? num(maintenance) : null,
+          num_atms:                   numAtms     ? num(numAtms)     : null,
+          contract_coverage_pct:      contractPct ? num(contractPct) : null,
+          avg_equipment_age_years:    equipAge    ? num(equipAge)    : null,
+          computed_gross_revenue:     computed.grossRevenue,
+          computed_monthly_net:       computed.monthlyNet,
+          computed_multiple:          computed.multiple,
+          computed_value:             computed.value,
           name, email, phone,
           wants_full_report: true,
           referrer: typeof document !== 'undefined' ? document.referrer : '',
@@ -219,83 +213,75 @@ export default function Calculator() {
           </div>
         </Section>
 
-        {/* ── STEP 2 + 3: REVENUE & EXPENSES ─────────────── */}
-        {routeType && routeType !== 'processing_only' && (
-          <>
-            <Section step="2" title="Revenue">
-              <div className="row two">
-                <Field label="Total monthly surcharge transactions" hint="Across the whole route">
-                  <input type="text" inputMode="numeric" placeholder="e.g. 5,000"
-                    value={transactions} onChange={e => setTransactions(e.target.value)} />
-                </Field>
-                <Field label="Average surcharge per transaction">
-                  <div className="dollar-input">
-                    <span>$</span>
-                    <input type="text" inputMode="decimal" placeholder="e.g. 3.00"
-                      value={surcharge} onChange={e => setSurcharge(e.target.value)} />
-                  </div>
-                </Field>
-              </div>
-              {num(transactions) > 0 && num(surcharge) > 0 && (
-                <div className="callout">
-                  Gross monthly revenue: <strong>{money(num(transactions) * num(surcharge))}</strong>
+        {/* ── STEP 2: REVENUE (simplified, all route types) ─ */}
+        {routeType && (
+          <Section step="2" title="Monthly revenue">
+            <div className="row two">
+              <Field label="Total monthly surcharge income" hint="Across the whole route">
+                <div className="dollar-input">
+                  <span>$</span>
+                  <input type="text" inputMode="numeric" placeholder="e.g. 12,000"
+                    value={surchargeIncome} onChange={e => setSurchargeIncome(e.target.value)} />
                 </div>
-              )}
-            </Section>
-
-            <Section step="3" title="Monthly expenses">
-              <div className="row two">
-                <Field label="Total merchant payments" hint="What you pay locations">
-                  <div className="dollar-input">
-                    <span>$</span>
-                    <input type="text" inputMode="numeric" placeholder="0"
-                      value={merchantPay} onChange={e => setMerchantPay(e.target.value)} />
-                  </div>
-                </Field>
-                <Field label="Total wireless fees">
-                  <div className="dollar-input">
-                    <span>$</span>
-                    <input type="text" inputMode="numeric" placeholder="0"
-                      value={wireless} onChange={e => setWireless(e.target.value)} />
-                  </div>
-                </Field>
-              </div>
-
-              {routeType === 'third_party_load' && (
-                <div className="row two">
-                  <Field label="Total loading fees" hint="Cash provider fees">
-                    <div className="dollar-input">
-                      <span>$</span>
-                      <input type="text" inputMode="numeric" placeholder="0"
-                        value={loadingFees} onChange={e => setLoadingFees(e.target.value)} />
-                    </div>
-                  </Field>
-                  <Field label="Total maintenance costs">
-                    <div className="dollar-input">
-                      <span>$</span>
-                      <input type="text" inputMode="numeric" placeholder="0"
-                        value={maintenance} onChange={e => setMaintenance(e.target.value)} />
-                    </div>
-                  </Field>
+              </Field>
+              <Field label="Total monthly interchange income" hint="Across the whole route">
+                <div className="dollar-input">
+                  <span>$</span>
+                  <input type="text" inputMode="numeric" placeholder="e.g. 1,200"
+                    value={interchangeIncome} onChange={e => setInterchangeIncome(e.target.value)} />
                 </div>
-              )}
-            </Section>
-          </>
-        )}
-
-        {routeType === 'processing_only' && (
-          <Section step="2" title="Monthly net income">
-            <Field label="Total monthly net income" hint="Interchange revenue minus your processing costs">
-              <div className="dollar-input">
-                <span>$</span>
-                <input type="text" inputMode="numeric" placeholder="e.g. 1,000"
-                  value={netProcessing} onChange={e => setNetProcessing(e.target.value)} />
+              </Field>
+            </div>
+            {(num(surchargeIncome) > 0 || num(interchangeIncome) > 0) && (
+              <div className="callout">
+                Gross monthly revenue: <strong>{money(num(surchargeIncome) + num(interchangeIncome))}</strong>
               </div>
-            </Field>
+            )}
           </Section>
         )}
 
-        {/* ── STEP 4: ROUTE DETAILS (informational) ──────── */}
+        {/* ── STEP 3: EXPENSES (vary by route type) ─────────── */}
+        {routeType && routeType !== 'processing_only' && (
+          <Section step="3" title="Monthly expenses">
+            <div className="row two">
+              <Field label="Total merchant payments" hint="What you pay locations">
+                <div className="dollar-input">
+                  <span>$</span>
+                  <input type="text" inputMode="numeric" placeholder="0"
+                    value={merchantPay} onChange={e => setMerchantPay(e.target.value)} />
+                </div>
+              </Field>
+              <Field label="Total wireless fees">
+                <div className="dollar-input">
+                  <span>$</span>
+                  <input type="text" inputMode="numeric" placeholder="0"
+                    value={wireless} onChange={e => setWireless(e.target.value)} />
+                </div>
+              </Field>
+            </div>
+
+            {routeType === 'third_party_load' && (
+              <div className="row two">
+                <Field label="Total loading fees" hint="Cash provider fees">
+                  <div className="dollar-input">
+                    <span>$</span>
+                    <input type="text" inputMode="numeric" placeholder="0"
+                      value={loadingFees} onChange={e => setLoadingFees(e.target.value)} />
+                  </div>
+                </Field>
+                <Field label="Total maintenance costs">
+                  <div className="dollar-input">
+                    <span>$</span>
+                    <input type="text" inputMode="numeric" placeholder="0"
+                      value={maintenance} onChange={e => setMaintenance(e.target.value)} />
+                  </div>
+                </Field>
+              </div>
+            )}
+          </Section>
+        )}
+
+        {/* ── STEP 4: OPTIONAL DETAILS ──────────────────────── */}
         {routeType && (
           <Section step={routeType === 'processing_only' ? '3' : '4'}
                    title="Route details" subtitle="Optional — these affect final valuation">
@@ -329,17 +315,23 @@ export default function Calculator() {
             </div>
 
             <div className="result-breakdown">
+              <div className="bd-row">
+                <span>Surcharge income</span>
+                <strong>{money(num(surchargeIncome))}</strong>
+              </div>
+              <div className="bd-row">
+                <span>Interchange income</span>
+                <strong>{money(num(interchangeIncome))}</strong>
+              </div>
+              <div className="bd-row total">
+                <span>Gross monthly revenue</span>
+                <strong>{money(computed.grossRevenue)}</strong>
+              </div>
               {routeType !== 'processing_only' && (
-                <>
-                  <div className="bd-row">
-                    <span>Gross monthly revenue</span>
-                    <strong>{money(computed.grossRevenue)}</strong>
-                  </div>
-                  <div className="bd-row">
-                    <span>Monthly expenses</span>
-                    <strong>−{money(computed.grossRevenue - computed.monthlyNet)}</strong>
-                  </div>
-                </>
+                <div className="bd-row">
+                  <span>Monthly expenses</span>
+                  <strong>−{money(computed.grossRevenue - computed.monthlyNet)}</strong>
+                </div>
               )}
               <div className="bd-row total">
                 <span>Monthly net</span>
@@ -359,6 +351,7 @@ export default function Calculator() {
               This is a baseline estimate using market multiples.
               Final valuation factors include contract coverage{contractPct && ` (you entered ${contractPct}%)`},
               equipment age{equipAge && ` (${equipAge} yrs)`}, location concentration, and recent comparable sales.
+              Have a mixed route (multiple types)? Request a full analysis for accurate valuation across each portion.
             </div>
 
             {!showLeadForm && submitStatus !== 'success' && (
@@ -438,7 +431,6 @@ export default function Calculator() {
           max-width: 56ch;
         }
 
-        /* Route type cards */
         .route-grid {
           display: grid;
           grid-template-columns: 1fr;
@@ -485,7 +477,6 @@ export default function Calculator() {
           letter-spacing: 0.05em;
         }
 
-        /* Rows */
         .row {
           display: grid;
           gap: 14px;
@@ -508,7 +499,6 @@ export default function Calculator() {
         }
         .callout strong { color: #0f172a; }
 
-        /* Result */
         .result {
           margin-top: 32px;
           padding: 28px 24px;
@@ -585,7 +575,6 @@ export default function Calculator() {
         .cta:hover:not(:disabled) { background: #b7361a; }
         .cta:disabled { opacity: 0.5; cursor: not-allowed; }
 
-        /* Lead form */
         .lead-form {
           margin-top: 24px;
           padding-top: 24px;
@@ -610,7 +599,6 @@ export default function Calculator() {
           color: #b7361a;
         }
 
-        /* Success */
         .success {
           padding-top: 24px;
           border-top: 1px solid #e2e8f0;
@@ -635,7 +623,6 @@ export default function Calculator() {
           margin: 0;
         }
 
-        /* Footer */
         .footer {
           margin-top: 48px;
           padding-top: 24px;
