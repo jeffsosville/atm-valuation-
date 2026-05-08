@@ -3,11 +3,8 @@
 // Captures every ATM route valuation request:
 //   - Anonymous calculations are logged for analytics
 //   - When user requests full report, name/email/phone are added
-//   - Emails john@atmbrokerage.com on every full-report request
+//   - Emails info@atmbrokerage.com on every full-report request
 //   - Sends confirmation to the seller
-//
-// Inputs simplified (2026-05): single surcharge_income + interchange_income
-// fields replace transactions × surcharge math.
 
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { createClient } from '@supabase/supabase-js';
@@ -19,11 +16,10 @@ const supabase = createClient(
 
 const RESEND_API_KEY = process.env.RESEND_API_KEY!;
 const FROM_EMAIL     = 'ATM Brokerage <noreply@atmbrokerage.com>';
-const TO_EMAIL       = 'john@atmbrokerage.com';
+const TO_EMAIL       = 'info@atmbrokerage.com';
 const CC_EMAIL       = process.env.VALUATION_CC_EMAIL || '';
 
 type Body = {
-  // Inputs
   route_type: 'self_load' | 'third_party_load' | 'processing_only';
 
   monthly_surcharge_income?: number | null;
@@ -38,19 +34,16 @@ type Body = {
   contract_coverage_pct?: number | null;
   avg_equipment_age_years?: number | null;
 
-  // Computed
   computed_gross_revenue: number;
   computed_monthly_net: number;
   computed_multiple: number;
   computed_value: number;
 
-  // Lead (only present on full-report request)
   name?: string;
   email?: string;
   phone?: string;
   wants_full_report?: boolean;
 
-  // Meta
   referrer?: string;
 };
 
